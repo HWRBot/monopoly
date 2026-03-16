@@ -4,41 +4,44 @@ const { Server } = require('socket.io')
 const cors = require('cors')
 
 const app = express()
-app.use(cors())
+
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type'],
+}))
+app.options('*', cors())
+
 app.get('/', (req, res) => res.send('Monopoly server running!'))
 
 const server = http.createServer(app)
 const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+    credentials: false,
+  },
   allowEIO3: true,
   transports: ['polling', 'websocket'],
-  path: '/socket.io',
 })
 
 const rooms = {}
-
-function createRoom() {
-  return { players: [], gameState: null, started: false }
-}
 
 io.on('connection', (socket) => {
   console.log('Подключился:', socket.id)
 
   socket.on('join_room', ({ roomId, playerName }) => {
-    if (!rooms[roomId]) rooms[roomId] = createRoom()
+    if (!rooms[roomId]) rooms[roomId] = { players: [], gameState: null, started: false }
     const room = rooms[roomId]
 
     if (room.started) { socket.emit('error', 'Игра уже началась!'); return }
     if (room.players.length >= 6) { socket.emit('error', 'Комната заполнена!'); return }
-
-    // Prevent duplicate join
     if (room.players.find(p => p.id === socket.id)) return
 
     const player = { id: socket.id, name: playerName, index: room.players.length }
     room.players.push(player)
     socket.join(roomId)
     socket.data.roomId = roomId
-    socket.data.playerIndex = player.index
 
     io.to(roomId).emit('room_update', { players: room.players, started: room.started })
     console.log(`${playerName} вошёл в комнату ${roomId}`)
