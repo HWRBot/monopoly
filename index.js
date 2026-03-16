@@ -5,36 +5,34 @@ const cors = require('cors')
 
 const app = express()
 app.use(cors())
-const server = http.createServer(app)
-const io = new Server(server, { cors: { origin: '*' } })
+app.get('/', (req, res) => res.send('Monopoly server running!'))
 
-// Хранилище комнат
+const server = http.createServer(app)
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+  allowEIO3: true,
+  transports: ['polling', 'websocket'],
+  path: '/socket.io',
+})
+
 const rooms = {}
 
 function createRoom() {
-  return {
-    players: [],
-    gameState: null,
-    started: false,
-  }
+  return { players: [], gameState: null, started: false }
 }
 
 io.on('connection', (socket) => {
   console.log('Подключился:', socket.id)
 
-  // Присоединиться к комнате
   socket.on('join_room', ({ roomId, playerName }) => {
     if (!rooms[roomId]) rooms[roomId] = createRoom()
     const room = rooms[roomId]
 
-    if (room.started) {
-      socket.emit('error', 'Игра уже началась!')
-      return
-    }
-    if (room.players.length >= 6) {
-      socket.emit('error', 'Комната заполнена!')
-      return
-    }
+    if (room.started) { socket.emit('error', 'Игра уже началась!'); return }
+    if (room.players.length >= 6) { socket.emit('error', 'Комната заполнена!'); return }
+
+    // Prevent duplicate join
+    if (room.players.find(p => p.id === socket.id)) return
 
     const player = { id: socket.id, name: playerName, index: room.players.length }
     room.players.push(player)
@@ -46,7 +44,6 @@ io.on('connection', (socket) => {
     console.log(`${playerName} вошёл в комнату ${roomId}`)
   })
 
-  // Начать игру (только первый игрок)
   socket.on('start_game', ({ roomId, gameState }) => {
     if (!rooms[roomId]) return
     rooms[roomId].gameState = gameState
@@ -54,14 +51,12 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('game_started', { gameState, players: rooms[roomId].players })
   })
 
-  // Синхронизировать состояние игры
   socket.on('game_update', ({ roomId, gameState }) => {
     if (!rooms[roomId]) return
     rooms[roomId].gameState = gameState
     socket.to(roomId).emit('game_updated', { gameState })
   })
 
-  // Отключение
   socket.on('disconnect', () => {
     const roomId = socket.data.roomId
     if (!roomId || !rooms[roomId]) return
